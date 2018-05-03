@@ -13,21 +13,25 @@ import (
 type Recaptcha interface {
 	// Verify verifies recaptcha with google server
 	Verify(remoteIP string, code string) (bool, error)
+
+	// Site returns recaptcha site key
+	Site() string
 }
 
 // New creates new Recaptcha
-func New(secret string) Recaptcha {
-	return NewWithClient(secret, http.DefaultClient)
+func New(site string, secret string) Recaptcha {
+	return NewWithClient(site, secret, http.DefaultClient)
 }
 
 // NewWithClient creates new Recaptcha with http client
-func NewWithClient(secret string, client *http.Client) Recaptcha {
-	return &service{secret, client}
+func NewWithClient(site string, secret string, client *http.Client) Recaptcha {
+	return &service{site, secret, client}
 }
 
 const verifyURL = "https://www.google.com/recaptcha/api/siteverify"
 
 type service struct {
+	site   string
 	secret string
 	client *http.Client
 }
@@ -48,4 +52,8 @@ func (s *service) Verify(remoteIP string, code string) (bool, error) {
 	io.Copy(&buf, resp.Body)
 
 	return gjson.GetBytes(buf.Bytes(), "success").Bool(), nil
+}
+
+func (s *service) Site() string {
+	return s.site
 }
