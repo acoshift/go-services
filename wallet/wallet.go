@@ -58,7 +58,7 @@ func (s *service) Add(ctx context.Context, userID string, currency string, value
 		if err != nil {
 			return err
 		}
-		if b.LessThan(value) {
+		if b.LessThan(value.Abs()) {
 			return ErrBalanceNotEnough
 		}
 	}
