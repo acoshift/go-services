@@ -39,10 +39,13 @@ type Repository interface {
 	InsertHistory(ctx context.Context, srcOrderID, dstOrderID string, side Side, rate, amount decimal.Decimal) error
 }
 
+// CurrencyGetter is the function that return currency
+type CurrencyGetter func(context.Context) string
+
 // Currency is exchange currency
 type Currency struct {
-	Buy  string
-	Sell string
+	Buy  CurrencyGetter
+	Sell CurrencyGetter
 }
 
 // New creates new exchange
@@ -56,12 +59,12 @@ type service struct {
 	currency Currency
 }
 
-func (s *service) getCurrency(side Side) string {
+func (s *service) getCurrency(ctx context.Context, side Side) string {
 	switch side {
 	case Buy:
-		return s.currency.Buy
+		return s.currency.Buy(ctx)
 	case Sell:
-		return s.currency.Sell
+		return s.currency.Sell(ctx)
 	default:
 		panic("unreachable")
 	}
@@ -92,7 +95,7 @@ func (s *service) PlaceOrder(ctx context.Context, order Order) (string, error) {
 	order.Status = Active
 	order.Remaining = order.Value
 
-	currency := s.getCurrency(order.Side)
+	currency := s.getCurrency(ctx, order.Side)
 	amount := order.Value.Mul(order.Rate)
 	err := s.wallet.Add(ctx, order.UserID, currency, amount.Neg())
 	if err != nil {
@@ -128,7 +131,7 @@ func (s *service) CancelOrder(ctx context.Context, orderID string) error {
 		return err
 	}
 
-	currency := s.getCurrency(order.Side)
+	currency := s.getCurrency(ctx, order.Side)
 	amount := order.Remaining.Mul(order.Rate)
 	err = s.wallet.Add(ctx, order.UserID, currency, amount)
 	if err != nil {
@@ -209,11 +212,11 @@ func (s *service) matchingOrder(ctx context.Context, orderID string) error {
 		return err
 	}
 
-	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(matchOrder.Side), amount)
+	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, matchOrder.Side), amount)
 	if err != nil {
 		return err
 	}
-	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(order.Side), amount.Mul(matchOrder.Rate))
+	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, order.Side), amount.Mul(matchOrder.Rate))
 	if err != nil {
 		return err
 	}
@@ -223,7 +226,7 @@ func (s *service) matchingOrder(ctx context.Context, orderID string) error {
 		diffAmount := amount.Mul(diffRate)
 
 		if diffAmount.GreaterThan(decimal.Zero) {
-			err = s.wallet.Add(ctx, order.UserID, s.getCurrency(matchOrder.Side), diffAmount)
+			err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, matchOrder.Side), diffAmount)
 			if err != nil {
 				return err
 			}
