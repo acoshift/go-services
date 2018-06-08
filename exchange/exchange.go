@@ -28,15 +28,15 @@ type Exchange interface {
 
 // Repository is exchange storage
 type Repository interface {
-	CreateOrder(ctx context.Context, order *Order) (orderID string, err error)
-	GetOrder(ctx context.Context, orderID string) (*Order, error)
+	CreateOrder(ctx context.Context, order Order) (orderID string, err error)
+	GetOrder(ctx context.Context, orderID string) (Order, error)
 	SetOrderStatus(ctx context.Context, orderID string, status Status) error
 	SetOrderStatusRemainingAndStampMatched(ctx context.Context, orderID string, status Status, remaining decimal.Decimal) error
 	StampOrderFinished(ctx context.Context, orderID string) error
 	GetFee(ctx context.Context, userID string, side Side, rate, amount decimal.Decimal) (decimal.Decimal, error)
-	GetOrderHighestRate(ctx context.Context, side Side, status Status, minRate decimal.Decimal) (*Order, error)
-	GetOrderLowestRate(ctx context.Context, side Side, status Status, maxRate decimal.Decimal) (*Order, error)
-	InsertHistory(ctx context.Context, srcOrderID, dstOrderID string, side Side, rate, amount decimal.Decimal) error
+	GetOrderHighestRate(ctx context.Context, side Side, status Status, minRate decimal.Decimal) (Order, error)
+	GetOrderLowestRate(ctx context.Context, side Side, status Status, maxRate decimal.Decimal) (Order, error)
+	InsertHistory(ctx context.Context, srcOrder, dstOrder Order, side Side, rate, amount decimal.Decimal) error
 }
 
 // CurrencyGetter is the function that return currency
@@ -102,7 +102,7 @@ func (s *service) PlaceOrder(ctx context.Context, order Order) (string, error) {
 		return "", err
 	}
 
-	orderID, err := s.repo.CreateOrder(ctx, &order)
+	orderID, err := s.repo.CreateOrder(ctx, order)
 	if err != nil {
 		return "", err
 	}
@@ -155,7 +155,7 @@ func (s *service) matchingOrder(ctx context.Context, orderID string) error {
 		return nil
 	}
 
-	var matchOrder *Order
+	var matchOrder Order
 	switch order.Side {
 	case Buy:
 		matchOrder, err = s.repo.GetOrderLowestRate(ctx, Sell, Active, order.Rate)
@@ -207,7 +207,7 @@ func (s *service) matchingOrder(ctx context.Context, orderID string) error {
 		return err
 	}
 
-	err = s.repo.InsertHistory(ctx, order.ID, matchOrder.ID, order.Side, matchOrder.Rate, amount)
+	err = s.repo.InsertHistory(ctx, order, matchOrder, order.Side, matchOrder.Rate, amount)
 	if err != nil {
 		return err
 	}
