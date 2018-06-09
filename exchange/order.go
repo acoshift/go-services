@@ -38,3 +38,8 @@ const (
 	Buy Side = iota
 	Sell
 )
+
+// ValidSide checks is side valid
+func ValidSide(side Side) bool {
+	return side == Buy || side == Sell
+}

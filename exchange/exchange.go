@@ -19,8 +19,8 @@ var (
 
 // Exchange is exchange service
 type Exchange interface {
-	// PlaceOrder places new order
-	PlaceOrder(ctx context.Context, order Order) (orderID string, err error)
+	// PlaceLimitOrder places a limit order
+	PlaceLimitOrder(ctx context.Context, userID string, side Side, rate, value decimal.Decimal) (orderID string, err error)
 
 	// CancelOrder cancels a order
 	CancelOrder(ctx context.Context, orderID string) error
@@ -81,28 +81,32 @@ func (s *service) swapSide(side Side) Side {
 	}
 }
 
-func (s *service) PlaceOrder(ctx context.Context, order Order) (string, error) {
-	if order.Value.LessThanOrEqual(decimal.Zero) {
+func (s *service) PlaceLimitOrder(ctx context.Context, userID string, side Side, rate, value decimal.Decimal) (string, error) {
+	if value.LessThanOrEqual(decimal.Zero) {
 		return "", ErrInvalidValue
 	}
-	if order.Rate.LessThanOrEqual(decimal.Zero) {
+	if rate.LessThanOrEqual(decimal.Zero) {
 		return "", ErrInvalidRate
 	}
-	if order.Side != Buy && order.Side != Sell {
+	if !ValidSide(side) {
 		return "", ErrInvalidSide
 	}
 
-	order.Status = Active
-	order.Remaining = order.Value
-
-	currency := s.getCurrency(ctx, order.Side)
-	amount := order.Value.Mul(order.Rate)
-	err := s.wallet.Add(ctx, order.UserID, currency, amount.Neg())
+	currency := s.getCurrency(ctx, side)
+	amount := value.Mul(rate)
+	err := s.wallet.Add(ctx, userID, currency, amount.Neg())
 	if err != nil {
 		return "", err
 	}
 
-	orderID, err := s.repo.CreateOrder(ctx, order)
+	orderID, err := s.repo.CreateOrder(ctx, Order{
+		UserID:    userID,
+		Side:      side,
+		Rate:      rate,
+		Value:     value,
+		Remaining: value,
+		Status:    Active,
+	})
 	if err != nil {
 		return "", err
 	}
