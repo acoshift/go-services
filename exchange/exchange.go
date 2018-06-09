@@ -346,10 +346,6 @@ func (s *service) matchingSellOrder(ctx context.Context, order *Order) error {
 		}
 	}
 
-	// err = s.repo.SetOrderStatusRemainingAndStampMatched(ctx, order.ID, order.Status, order.Remaining)
-	// if err != nil {
-	// 	return err
-	// }
 	err = s.repo.SetOrderStatusRemainingAndStampMatched(ctx, matchOrder.ID, matchOrder.Status, matchOrder.Remaining)
 	if err != nil {
 		return err
