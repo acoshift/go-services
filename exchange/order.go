@@ -20,6 +20,16 @@ type Order struct {
 	FinishedAt time.Time
 }
 
+// IsLimit returns true if order is limit order
+func (x Order) IsLimit() bool {
+	return !x.Rate.Equal(decimal.Zero)
+}
+
+// IsMarket returns true if order is market order
+func (x Order) IsMarket() bool {
+	return x.Rate.Equal(decimal.Zero)
+}
+
 // Status is order status
 type Status int
 
