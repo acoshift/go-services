@@ -25,10 +25,18 @@ func New(site string, secret string) Recaptcha {
 
 // NewWithClient creates new Recaptcha with http client
 func NewWithClient(site string, secret string, client *http.Client) Recaptcha {
+	if site == "" && secret == "" {
+		site, secret = testSite, testSecret
+	}
 	return &service{site, secret, client}
 }
 
 const verifyURL = "https://www.google.com/recaptcha/api/siteverify"
+
+const (
+	testSite   = "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
+	testSecret = "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe"
+)
 
 type service struct {
 	site   string
