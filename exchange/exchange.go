@@ -39,7 +39,7 @@ type Repository interface {
 	GetFee(ctx context.Context, userID string, side Side, rate, amount decimal.Decimal) (decimal.Decimal, error)
 	GetActiveBuyOrderHighestRate(ctx context.Context) (Order, error)
 	GetActiveSellOrderLowestRate(ctx context.Context) (Order, error)
-	InsertHistory(ctx context.Context, srcOrder, dstOrder Order, side Side, rate, amount decimal.Decimal) error
+	InsertHistory(ctx context.Context, srcOrder, dstOrder Order, side Side, rate, amount, srcFee, dstFee decimal.Decimal) error
 }
 
 // CurrencyGetter is the function that return currency
@@ -96,8 +96,7 @@ func (s *service) PlaceLimitOrder(ctx context.Context, userID string, side Side,
 	}
 
 	currency := s.getCurrency(ctx, side)
-	amount := value.Mul(rate)
-	err := s.wallet.Add(ctx, userID, currency, amount.Neg())
+	err := s.wallet.Add(ctx, userID, currency, value.Neg())
 	if err != nil {
 		return "", err
 	}
@@ -271,16 +270,25 @@ func (s *service) matchingBuyOrder(ctx context.Context, order *Order) error {
 		return err
 	}
 
-	err = s.repo.InsertHistory(ctx, *order, matchOrder, Buy, rate, sellAmount)
+	buyerFee, err := s.repo.GetFee(ctx, order.UserID, order.Side, order.Rate, sellAmount)
+	if err != nil {
+		return err
+	}
+	sellerFee, err := s.repo.GetFee(ctx, matchOrder.UserID, matchOrder.Side, matchOrder.Rate, buyAmount)
 	if err != nil {
 		return err
 	}
 
-	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, Sell), sellAmount)
+	err = s.repo.InsertHistory(ctx, *order, matchOrder, Buy, rate, sellAmount, buyerFee, sellerFee)
 	if err != nil {
 		return err
 	}
-	err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, Buy), buyAmount)
+
+	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, Sell), sellAmount.Sub(buyerFee))
+	if err != nil {
+		return err
+	}
+	err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, Buy), buyAmount.Sub(sellerFee))
 	if err != nil {
 		return err
 	}
@@ -330,8 +338,8 @@ func (s *service) matchingSellOrder(ctx context.Context, order *Order) error {
 
 	buyAmount := sellAmount.Mul(rate)
 
-	order.Remaining = order.Remaining.Sub(buyAmount)
-	matchOrder.Remaining = matchOrder.Remaining.Sub(sellAmount)
+	order.Remaining = order.Remaining.Sub(sellAmount)
+	matchOrder.Remaining = matchOrder.Remaining.Sub(buyAmount)
 
 	if order.Remaining.LessThanOrEqual(decimal.Zero) {
 		order.Status = Matched
@@ -351,16 +359,25 @@ func (s *service) matchingSellOrder(ctx context.Context, order *Order) error {
 		return err
 	}
 
-	err = s.repo.InsertHistory(ctx, *order, matchOrder, Sell, rate, sellAmount)
+	buyerFee, err := s.repo.GetFee(ctx, matchOrder.UserID, matchOrder.Side, matchOrder.Rate, sellAmount)
+	if err != nil {
+		return err
+	}
+	sellerFee, err := s.repo.GetFee(ctx, order.UserID, order.Side, order.Rate, buyAmount)
 	if err != nil {
 		return err
 	}
 
-	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, Buy), buyAmount)
+	err = s.repo.InsertHistory(ctx, *order, matchOrder, Sell, rate, sellAmount, sellerFee, buyerFee)
 	if err != nil {
 		return err
 	}
-	err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, Sell), sellAmount)
+
+	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, Buy), buyAmount.Sub(sellerFee))
+	if err != nil {
+		return err
+	}
+	err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, Sell), sellAmount.Sub(buyerFee))
 	if err != nil {
 		return err
 	}
