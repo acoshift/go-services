@@ -10,6 +10,7 @@ import (
 type Order struct {
 	ID         string
 	UserID     string
+	Type       Type
 	Side       Side
 	Status     Status
 	Rate       decimal.Decimal
@@ -20,15 +21,14 @@ type Order struct {
 	FinishedAt time.Time
 }
 
-// IsLimit returns true if order is limit order
-func (x Order) IsLimit() bool {
-	return !x.Rate.Equal(decimal.Zero)
-}
+// Type is order type
+type Type int
 
-// IsMarket returns true if order is market order
-func (x Order) IsMarket() bool {
-	return x.Rate.Equal(decimal.Zero)
-}
+// Type values
+const (
+	Limit Type = iota
+	Market
+)
 
 // Status is order status
 type Status int

@@ -12,8 +12,9 @@ import (
 // Errors
 var (
 	ErrInvalidValue  = errors.New("exchange: invalid order value")
-	ErrInvalidSide   = errors.New("exchange: invalid side")
-	ErrInvalidRate   = errors.New("exchange: invalid rate")
+	ErrInvalidSide   = errors.New("exchange: invalid order side")
+	ErrInvalidRate   = errors.New("exchange: invalid order rate")
+	ErrInvalidType   = errors.New("exchange: invalid order type")
 	ErrOrderNotFound = errors.New("exchange: order not found")
 )
 
@@ -37,8 +38,8 @@ type Repository interface {
 	SetOrderStatusRemainingAndStampMatched(ctx context.Context, orderID string, status Status, remaining decimal.Decimal) error
 	StampOrderFinished(ctx context.Context, orderID string) error
 	GetFee(ctx context.Context, userID string, side Side, rate, amount decimal.Decimal) (decimal.Decimal, error)
-	GetActiveBuyOrderHighestRate(ctx context.Context) (Order, error)
-	GetActiveSellOrderLowestRate(ctx context.Context) (Order, error)
+	GetActiveBuyLimitOrderHighestRate(ctx context.Context) (Order, error)
+	GetActiveSellLimitOrderLowestRate(ctx context.Context) (Order, error)
 	InsertHistory(ctx context.Context, srcOrder, dstOrder Order, side Side, rate, amount, srcFee, dstFee decimal.Decimal) error
 }
 
@@ -91,18 +92,23 @@ func (s *service) PlaceLimitOrder(ctx context.Context, userID string, side Side,
 	if rate.LessThanOrEqual(decimal.Zero) {
 		return "", ErrInvalidRate
 	}
-	if !ValidSide(side) {
+
+	var err error
+	switch side {
+	case Buy:
+		err = s.wallet.Add(ctx, userID, s.getCurrency(ctx, side), value.Mul(rate).Neg())
+	case Sell:
+		err = s.wallet.Add(ctx, userID, s.getCurrency(ctx, side), value.Neg())
+	default:
 		return "", ErrInvalidSide
 	}
-
-	currency := s.getCurrency(ctx, side)
-	err := s.wallet.Add(ctx, userID, currency, value.Neg())
 	if err != nil {
 		return "", err
 	}
 
 	orderID, err := s.repo.CreateOrder(ctx, Order{
 		UserID:    userID,
+		Type:      Limit,
 		Side:      side,
 		Rate:      rate,
 		Value:     value,
@@ -113,7 +119,7 @@ func (s *service) PlaceLimitOrder(ctx context.Context, userID string, side Side,
 		return "", err
 	}
 
-	err = s.matchingOrder(ctx, orderID)
+	err = s.matchingLimitOrder(ctx, orderID)
 	if err != nil {
 		return "", err
 	}
@@ -131,6 +137,7 @@ func (s *service) PlaceMarketOrder(ctx context.Context, userID string, side Side
 
 	orderID, err := s.repo.CreateOrder(ctx, Order{
 		UserID:    userID,
+		Type:      Market,
 		Side:      side,
 		Value:     value,
 		Remaining: value,
@@ -140,7 +147,7 @@ func (s *service) PlaceMarketOrder(ctx context.Context, userID string, side Side
 		return "", err
 	}
 
-	err = s.matchingOrder(ctx, orderID)
+	err = s.matchingMarketOrder(ctx, orderID)
 	if err != nil {
 		return "", err
 	}
@@ -174,7 +181,14 @@ func (s *service) CancelOrder(ctx context.Context, orderID string) error {
 	}
 
 	currency := s.getCurrency(ctx, order.Side)
-	err = s.wallet.Add(ctx, order.UserID, currency, order.Remaining)
+	switch order.Side {
+	case Buy:
+		err = s.wallet.Add(ctx, order.UserID, currency, order.Remaining.Mul(order.Rate))
+	case Sell:
+		err = s.wallet.Add(ctx, order.UserID, currency, order.Remaining)
+	default:
+		return ErrInvalidSide
+	}
 	if err != nil {
 		return err
 	}
@@ -182,7 +196,7 @@ func (s *service) CancelOrder(ctx context.Context, orderID string) error {
 	return nil
 }
 
-func (s *service) matchingOrder(ctx context.Context, orderID string) error {
+func (s *service) matchingLimitOrder(ctx context.Context, orderID string) error {
 	order, err := s.repo.GetOrder(ctx, orderID)
 	if err != nil {
 		return err
@@ -196,14 +210,7 @@ func (s *service) matchingOrder(ctx context.Context, orderID string) error {
 		return nil
 	}
 
-	switch order.Side {
-	case Buy:
-		err = s.matchingBuyOrder(ctx, &order)
-	case Sell:
-		err = s.matchingSellOrder(ctx, &order)
-	default:
-		return ErrInvalidSide
-	}
+	err = s.runLimitMatching(ctx, &order)
 	if err != nil {
 		return err
 	}
@@ -223,34 +230,52 @@ func (s *service) matchingOrder(ctx context.Context, orderID string) error {
 	return nil
 }
 
-func (s *service) matchingBuyOrder(ctx context.Context, order *Order) error {
-	matchOrder, err := s.repo.GetActiveSellOrderLowestRate(ctx)
-	if err == ErrOrderNotFound {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
+func (s *service) runLimitMatching(ctx context.Context, order *Order) error {
+	var matchOrder Order
+	var err error
 
-	if order.IsLimit() && matchOrder.Rate.GreaterThan(order.Rate) {
-		// no more match order
-		return nil
+	switch order.Side {
+	case Buy:
+		matchOrder, err = s.repo.GetActiveSellLimitOrderLowestRate(ctx)
+		if err == ErrOrderNotFound {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		if matchOrder.Rate.GreaterThan(order.Rate) {
+			// no more match order
+			return nil
+		}
+	case Sell:
+		matchOrder, err = s.repo.GetActiveBuyLimitOrderHighestRate(ctx)
+		if err == ErrOrderNotFound {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		if matchOrder.Rate.LessThan(order.Rate) {
+			// no more match order
+			return nil
+		}
+	default:
+		return ErrInvalidSide
 	}
 
 	rate := matchOrder.Rate
 
-	var buyAmount decimal.Decimal
-
-	if m := matchOrder.Remaining.Mul(rate); order.Remaining.LessThanOrEqual(m) {
-		buyAmount = order.Remaining
+	var amount decimal.Decimal
+	if matchOrder.Remaining.LessThanOrEqual(order.Remaining) {
+		amount = matchOrder.Remaining
 	} else {
-		buyAmount = m
+		amount = order.Remaining
 	}
 
-	sellAmount := buyAmount.Div(rate)
-
-	order.Remaining = order.Remaining.Sub(buyAmount)
-	matchOrder.Remaining = matchOrder.Remaining.Sub(sellAmount)
+	order.Remaining = order.Remaining.Sub(amount)
+	matchOrder.Remaining = matchOrder.Remaining.Sub(amount)
 
 	if order.Remaining.LessThanOrEqual(decimal.Zero) {
 		order.Status = Matched
@@ -270,35 +295,46 @@ func (s *service) matchingBuyOrder(ctx context.Context, order *Order) error {
 		return err
 	}
 
-	buyerFee, err := s.repo.GetFee(ctx, order.UserID, order.Side, order.Rate, sellAmount)
+	orderFee, err := s.repo.GetFee(ctx, order.UserID, order.Side, order.Rate, amount)
 	if err != nil {
 		return err
 	}
-	sellerFee, err := s.repo.GetFee(ctx, matchOrder.UserID, matchOrder.Side, matchOrder.Rate, buyAmount)
-	if err != nil {
-		return err
-	}
-
-	err = s.repo.InsertHistory(ctx, *order, matchOrder, Buy, rate, sellAmount, buyerFee, sellerFee)
+	matchOrderFee, err := s.repo.GetFee(ctx, matchOrder.UserID, matchOrder.Side, matchOrder.Rate, amount)
 	if err != nil {
 		return err
 	}
 
-	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, Sell), sellAmount.Sub(buyerFee))
-	if err != nil {
-		return err
-	}
-	err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, Buy), buyAmount.Sub(sellerFee))
+	err = s.repo.InsertHistory(ctx, *order, matchOrder, Buy, rate, amount, orderFee, matchOrderFee)
 	if err != nil {
 		return err
 	}
 
-	if order.IsLimit() && !order.Rate.Equal(rate) {
+	if order.Side == Buy {
+		err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, matchOrder.Side), amount.Sub(orderFee))
+		if err != nil {
+			return err
+		}
+		err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, order.Side), amount.Sub(matchOrderFee).Mul(rate))
+		if err != nil {
+			return err
+		}
+	} else {
+		err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, matchOrder.Side), amount.Sub(orderFee).Mul(rate))
+		if err != nil {
+			return err
+		}
+		err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, order.Side), amount.Sub(matchOrderFee))
+		if err != nil {
+			return err
+		}
+	}
+
+	if order.Side == Buy && !order.Rate.Equal(rate) {
 		diffRate := order.Rate.Sub(rate)
-		diffAmount := buyAmount.Mul(diffRate)
+		diffAmount := amount.Mul(diffRate)
 
 		if diffAmount.GreaterThan(decimal.Zero) {
-			err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, Buy), diffAmount)
+			err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, order.Side), diffAmount)
 			if err != nil {
 				return err
 			}
@@ -306,14 +342,58 @@ func (s *service) matchingBuyOrder(ctx context.Context, order *Order) error {
 	}
 
 	if order.Status == Active {
-		return s.matchingBuyOrder(ctx, order)
+		return s.runLimitMatching(ctx, order)
 	}
 
 	return nil
 }
 
-func (s *service) matchingSellOrder(ctx context.Context, order *Order) error {
-	matchOrder, err := s.repo.GetActiveBuyOrderHighestRate(ctx)
+func (s *service) matchingMarketOrder(ctx context.Context, orderID string) error {
+	order, err := s.repo.GetOrder(ctx, orderID)
+	if err != nil {
+		return err
+	}
+
+	if order.Status != Active {
+		return nil
+	}
+
+	if order.Remaining.LessThanOrEqual(decimal.Zero) {
+		return nil
+	}
+
+	err = s.runMarketMatching(ctx, &order)
+	if err != nil {
+		return err
+	}
+
+	err = s.repo.SetOrderStatusRemainingAndStampMatched(ctx, order.ID, order.Status, order.Remaining)
+	if err != nil {
+		return err
+	}
+
+	if order.Status == Matched {
+		err = s.repo.StampOrderFinished(ctx, order.ID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *service) runMarketMatching(ctx context.Context, order *Order) error {
+	var matchOrder Order
+	var err error
+
+	switch order.Side {
+	case Buy:
+		matchOrder, err = s.repo.GetActiveSellLimitOrderLowestRate(ctx)
+	case Sell:
+		matchOrder, err = s.repo.GetActiveBuyLimitOrderHighestRate(ctx)
+	default:
+		return ErrInvalidSide
+	}
 	if err == ErrOrderNotFound {
 		return nil
 	}
@@ -321,25 +401,17 @@ func (s *service) matchingSellOrder(ctx context.Context, order *Order) error {
 		return err
 	}
 
-	if order.IsLimit() && matchOrder.Rate.LessThan(order.Rate) {
-		// no more match order
-		return nil
-	}
-
 	rate := matchOrder.Rate
 
-	var sellAmount decimal.Decimal
-
-	if m := matchOrder.Remaining.Div(rate); order.Remaining.LessThanOrEqual(m) {
-		sellAmount = order.Remaining
+	var amount decimal.Decimal
+	if matchOrder.Remaining.LessThanOrEqual(order.Remaining) {
+		amount = matchOrder.Remaining
 	} else {
-		sellAmount = m
+		amount = order.Remaining
 	}
 
-	buyAmount := sellAmount.Mul(rate)
-
-	order.Remaining = order.Remaining.Sub(sellAmount)
-	matchOrder.Remaining = matchOrder.Remaining.Sub(buyAmount)
+	order.Remaining = order.Remaining.Sub(amount)
+	matchOrder.Remaining = matchOrder.Remaining.Sub(amount)
 
 	if order.Remaining.LessThanOrEqual(decimal.Zero) {
 		order.Status = Matched
@@ -359,31 +431,35 @@ func (s *service) matchingSellOrder(ctx context.Context, order *Order) error {
 		return err
 	}
 
-	buyerFee, err := s.repo.GetFee(ctx, matchOrder.UserID, matchOrder.Side, matchOrder.Rate, sellAmount)
+	orderFee, err := s.repo.GetFee(ctx, order.UserID, order.Side, order.Rate, amount)
 	if err != nil {
 		return err
 	}
-	sellerFee, err := s.repo.GetFee(ctx, order.UserID, order.Side, order.Rate, buyAmount)
-	if err != nil {
-		return err
-	}
-
-	err = s.repo.InsertHistory(ctx, *order, matchOrder, Sell, rate, sellAmount, sellerFee, buyerFee)
+	matchOrderFee, err := s.repo.GetFee(ctx, matchOrder.UserID, matchOrder.Side, matchOrder.Rate, amount)
 	if err != nil {
 		return err
 	}
 
-	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, Buy), buyAmount.Sub(sellerFee))
+	err = s.repo.InsertHistory(ctx, *order, matchOrder, Buy, rate, amount, orderFee, matchOrderFee)
 	if err != nil {
 		return err
 	}
-	err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, Sell), sellAmount.Sub(buyerFee))
+
+	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, matchOrder.Side), amount.Sub(orderFee))
+	if err != nil {
+		return err
+	}
+	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, order.Side), amount.Mul(rate).Neg())
+	if err != nil {
+		return err
+	}
+	err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, order.Side), amount.Sub(matchOrderFee).Mul(rate))
 	if err != nil {
 		return err
 	}
 
 	if order.Status == Active {
-		return s.matchingSellOrder(ctx, order)
+		return s.runMarketMatching(ctx, order)
 	}
 
 	return nil

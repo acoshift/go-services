@@ -73,9 +73,9 @@ func (r *memoryExchangeRepository) GetFee(ctx context.Context, userID string, si
 	return amount.Mul(d("0.0025")), nil
 }
 
-func (r *memoryExchangeRepository) GetActiveBuyOrderHighestRate(ctx context.Context) (result exchange.Order, err error) {
+func (r *memoryExchangeRepository) GetActiveBuyLimitOrderHighestRate(ctx context.Context) (result exchange.Order, err error) {
 	for _, order := range r.data {
-		if order.Side == exchange.Buy && order.Status == exchange.Active {
+		if order.Side == exchange.Buy && order.Status == exchange.Active && order.Type == exchange.Limit {
 			if result.Rate.Equal(decimal.Zero) {
 				result = order
 			} else if order.Rate.Equal(result.Rate) {
@@ -93,9 +93,9 @@ func (r *memoryExchangeRepository) GetActiveBuyOrderHighestRate(ctx context.Cont
 	return
 }
 
-func (r *memoryExchangeRepository) GetActiveSellOrderLowestRate(ctx context.Context) (result exchange.Order, err error) {
+func (r *memoryExchangeRepository) GetActiveSellLimitOrderLowestRate(ctx context.Context) (result exchange.Order, err error) {
 	for _, order := range r.data {
-		if order.Side == exchange.Sell && order.Status == exchange.Active {
+		if order.Side == exchange.Sell && order.Status == exchange.Active && order.Type == exchange.Limit {
 			if result.Rate.Equal(decimal.Zero) {
 				result = order
 			} else if order.Rate.Equal(result.Rate) {
@@ -175,7 +175,7 @@ func TestExchangeBuy1(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, orderID1)
 
-	orderID2, err := svc.PlaceLimitOrder(ctx, "1", exchange.Buy, d("2"), d("100"))
+	orderID2, err := svc.PlaceLimitOrder(ctx, "1", exchange.Buy, d("2"), d("50"))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, orderID2)
 
@@ -207,7 +207,7 @@ func TestExchangeSell1(t *testing.T) {
 	w.Add(ctx, "1", "A", d("10000"))
 	w.Add(ctx, "2", "B", d("10000"))
 
-	orderID1, err := svc.PlaceLimitOrder(ctx, "1", exchange.Buy, d("2"), d("100"))
+	orderID1, err := svc.PlaceLimitOrder(ctx, "1", exchange.Buy, d("2"), d("50"))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, orderID1)
 
