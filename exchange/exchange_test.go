@@ -175,6 +175,11 @@ func TestExchangeBuy1(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, orderID1)
 
+	b, _ := w.Balance(ctx, "2", "A")
+	assert.True(t, b.Equal(d("0")))
+	b, _ = w.Balance(ctx, "2", "B")
+	assert.True(t, b.Equal(d("9950")))
+
 	orderID2, err := svc.PlaceLimitOrder(ctx, "1", exchange.Buy, d("2"), d("50"))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, orderID2)
@@ -187,7 +192,7 @@ func TestExchangeBuy1(t *testing.T) {
 	assert.True(t, order.Remaining.Equal(decimal.Zero))
 	assert.Equal(t, exchange.Matched, order.Status)
 
-	b, _ := w.Balance(ctx, "1", "A")
+	b, _ = w.Balance(ctx, "1", "A")
 	assert.True(t, b.Equal(d("9900")))
 	b, _ = w.Balance(ctx, "1", "B")
 	assert.True(t, b.Equal(d("49.875")))
@@ -211,6 +216,11 @@ func TestExchangeSell1(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, orderID1)
 
+	b, _ := w.Balance(ctx, "1", "A")
+	assert.True(t, b.Equal(d("9900")))
+	b, _ = w.Balance(ctx, "1", "B")
+	assert.True(t, b.Equal(d("0")))
+
 	orderID2, err := svc.PlaceLimitOrder(ctx, "2", exchange.Sell, d("2"), d("50"))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, orderID2)
@@ -223,7 +233,7 @@ func TestExchangeSell1(t *testing.T) {
 	assert.True(t, order.Remaining.Equal(decimal.Zero))
 	assert.Equal(t, exchange.Matched, order.Status)
 
-	b, _ := w.Balance(ctx, "1", "A")
+	b, _ = w.Balance(ctx, "1", "A")
 	assert.True(t, b.Equal(d("9900")))
 	b, _ = w.Balance(ctx, "1", "B")
 	assert.True(t, b.Equal(d("49.875")))
