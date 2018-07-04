@@ -445,17 +445,32 @@ func (s *service) runMarketMatching(ctx context.Context, order *Order) error {
 		return err
 	}
 
-	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, matchOrder.Side), amount.Sub(orderFee))
-	if err != nil {
-		return err
-	}
-	err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, order.Side), amount.Mul(rate).Neg())
-	if err != nil {
-		return err
-	}
-	err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, order.Side), amount.Sub(matchOrderFee).Mul(rate))
-	if err != nil {
-		return err
+	if order.Side == Buy {
+		err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, matchOrder.Side), amount.Sub(orderFee))
+		if err != nil {
+			return err
+		}
+		err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, order.Side), amount.Mul(rate).Neg())
+		if err != nil {
+			return err
+		}
+		err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, order.Side), amount.Sub(matchOrderFee).Mul(rate))
+		if err != nil {
+			return err
+		}
+	} else {
+		err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, matchOrder.Side), amount.Sub(orderFee).Mul(rate))
+		if err != nil {
+			return err
+		}
+		err = s.wallet.Add(ctx, order.UserID, s.getCurrency(ctx, order.Side), amount.Neg())
+		if err != nil {
+			return err
+		}
+		err = s.wallet.Add(ctx, matchOrder.UserID, s.getCurrency(ctx, order.Side), amount.Sub(matchOrderFee))
+		if err != nil {
+			return err
+		}
 	}
 
 	if order.Status == Active {
