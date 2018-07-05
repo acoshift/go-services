@@ -170,14 +170,14 @@ func bal(t *testing.T, w wallet.Wallet, userID string, currency string, equal st
 	t.Helper()
 
 	b, _ := w.Balance(ctx, userID, currency)
-	assert.True(t, b.Equal(d(equal)))
+	assert.Equal(t, d(equal).String(), b.String())
 }
 
 func remain(t *testing.T, r exchange.Repository, orderID string, equal string) {
 	t.Helper()
 
 	order, _ := r.GetOrder(ctx, orderID)
-	assert.True(t, order.Remaining.Equal(d(equal)))
+	assert.Equal(t, d(equal).String(), order.Remaining.String())
 }
 
 func status(t *testing.T, r exchange.Repository, orderID string, s exchange.Status) {
@@ -188,13 +188,24 @@ func status(t *testing.T, r exchange.Repository, orderID string, s exchange.Stat
 }
 
 func placeLimit(t *testing.T, s exchange.Exchange, userID string, side exchange.Side, rate, amount string) string {
+	t.Helper()
+
 	orderID, err := s.PlaceLimitOrder(ctx, userID, side, d(rate), d(amount))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, orderID)
 	return orderID
 }
 
+func cancel(t *testing.T, s exchange.Exchange, orderID string) {
+	t.Helper()
+
+	err := s.CancelOrder(ctx, orderID)
+	assert.NoError(t, err)
+}
+
 func TestExchangeBuy1(t *testing.T) {
+	t.Parallel()
+
 	r := new(memoryExchangeRepository)
 	w := wallet.New(new(memoryWalletRepository))
 	s := exchange.New(r, w, currency)
@@ -221,7 +232,72 @@ func TestExchangeBuy1(t *testing.T) {
 	bal(t, w, "2", "B", "9950")
 }
 
+func TestExchangeBuy2(t *testing.T) {
+	t.Parallel()
+
+	r := new(memoryExchangeRepository)
+	w := wallet.New(new(memoryWalletRepository))
+	s := exchange.New(r, w, currency)
+
+	add(t, w, "1", "A", "10000")
+	add(t, w, "2", "B", "10000")
+
+	order1 := placeLimit(t, s, "2", exchange.Sell, "2", "100")
+
+	bal(t, w, "2", "A", "0")
+	bal(t, w, "2", "B", "9900")
+
+	order2 := placeLimit(t, s, "1", exchange.Buy, "2", "60")
+
+	remain(t, r, order1, "40")
+	status(t, r, order1, exchange.Active)
+
+	remain(t, r, order2, "0")
+	status(t, r, order2, exchange.Matched)
+
+	bal(t, w, "1", "A", "9880")
+	bal(t, w, "1", "B", "59.85")
+	bal(t, w, "2", "A", "119.7")
+	bal(t, w, "2", "B", "9900")
+
+	order3 := placeLimit(t, s, "1", exchange.Buy, "2", "60")
+
+	remain(t, r, order1, "0")
+	status(t, r, order1, exchange.Matched)
+
+	remain(t, r, order2, "0")
+	status(t, r, order2, exchange.Matched)
+
+	remain(t, r, order3, "20")
+	status(t, r, order3, exchange.Active)
+
+	bal(t, w, "1", "A", "9760")
+	bal(t, w, "1", "B", "99.75")
+	bal(t, w, "2", "A", "199.5")
+	bal(t, w, "2", "B", "9900")
+
+	cancel(t, s, order3)
+	remain(t, r, order3, "20")
+	status(t, r, order3, exchange.Cancelled)
+
+	bal(t, w, "1", "A", "9800")
+	bal(t, w, "1", "B", "99.75")
+	bal(t, w, "2", "A", "199.5")
+	bal(t, w, "2", "B", "9900")
+
+	cancel(t, s, order2)
+	remain(t, r, order2, "0")
+	status(t, r, order2, exchange.Matched)
+
+	bal(t, w, "1", "A", "9800")
+	bal(t, w, "1", "B", "99.75")
+	bal(t, w, "2", "A", "199.5")
+	bal(t, w, "2", "B", "9900")
+}
+
 func TestExchangeSell1(t *testing.T) {
+	t.Parallel()
+
 	r := new(memoryExchangeRepository)
 	w := wallet.New(new(memoryWalletRepository))
 	s := exchange.New(r, w, currency)
