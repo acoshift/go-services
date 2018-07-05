@@ -74,17 +74,6 @@ func (s *service) getCurrency(ctx context.Context, side Side) string {
 	}
 }
 
-func (s *service) swapSide(side Side) Side {
-	switch side {
-	case Buy:
-		return Sell
-	case Sell:
-		return Buy
-	default:
-		panic("unreachable")
-	}
-}
-
 func (s *service) PlaceLimitOrder(ctx context.Context, userID string, side Side, rate, value decimal.Decimal) (string, error) {
 	if value.LessThanOrEqual(decimal.Zero) {
 		return "", ErrInvalidValue

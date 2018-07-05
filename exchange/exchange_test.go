@@ -162,84 +162,88 @@ func d(s string) decimal.Decimal {
 	return d
 }
 
+func add(t *testing.T, w wallet.Wallet, userID string, currency string, amount string) {
+	w.Add(ctx, userID, currency, d(amount))
+}
+
+func bal(t *testing.T, w wallet.Wallet, userID string, currency string, equal string) {
+	t.Helper()
+
+	b, _ := w.Balance(ctx, userID, currency)
+	assert.True(t, b.Equal(d(equal)))
+}
+
+func remain(t *testing.T, r exchange.Repository, orderID string, equal string) {
+	t.Helper()
+
+	order, _ := r.GetOrder(ctx, orderID)
+	assert.True(t, order.Remaining.Equal(d(equal)))
+}
+
+func status(t *testing.T, r exchange.Repository, orderID string, s exchange.Status) {
+	t.Helper()
+
+	order, _ := r.GetOrder(ctx, orderID)
+	assert.Equal(t, s, order.Status)
+}
+
+func placeLimit(t *testing.T, s exchange.Exchange, userID string, side exchange.Side, rate, amount string) string {
+	orderID, err := s.PlaceLimitOrder(ctx, userID, side, d(rate), d(amount))
+	assert.NoError(t, err)
+	assert.NotEmpty(t, orderID)
+	return orderID
+}
+
 func TestExchangeBuy1(t *testing.T) {
-	repo := new(memoryExchangeRepository)
-	walletRepo := new(memoryWalletRepository)
-	w := wallet.New(walletRepo)
-	svc := exchange.New(repo, w, currency)
+	r := new(memoryExchangeRepository)
+	w := wallet.New(new(memoryWalletRepository))
+	s := exchange.New(r, w, currency)
 
-	w.Add(ctx, "1", "A", d("10000"))
-	w.Add(ctx, "2", "B", d("10000"))
+	add(t, w, "1", "A", "10000")
+	add(t, w, "2", "B", "10000")
 
-	orderID1, err := svc.PlaceLimitOrder(ctx, "2", exchange.Sell, d("2"), d("50"))
-	assert.NoError(t, err)
-	assert.NotEmpty(t, orderID1)
+	order1 := placeLimit(t, s, "2", exchange.Sell, "2", "50")
 
-	b, _ := w.Balance(ctx, "2", "A")
-	assert.True(t, b.Equal(d("0")))
-	b, _ = w.Balance(ctx, "2", "B")
-	assert.True(t, b.Equal(d("9950")))
+	bal(t, w, "2", "A", "0")
+	bal(t, w, "2", "B", "9950")
 
-	orderID2, err := svc.PlaceLimitOrder(ctx, "1", exchange.Buy, d("2"), d("50"))
-	assert.NoError(t, err)
-	assert.NotEmpty(t, orderID2)
+	order2 := placeLimit(t, s, "1", exchange.Buy, "2", "50")
 
-	order, _ := repo.GetOrder(ctx, orderID1)
-	assert.True(t, order.Remaining.Equal(decimal.Zero))
-	assert.Equal(t, exchange.Matched, order.Status)
+	remain(t, r, order1, "0")
+	status(t, r, order1, exchange.Matched)
 
-	order, _ = repo.GetOrder(ctx, orderID2)
-	assert.True(t, order.Remaining.Equal(decimal.Zero))
-	assert.Equal(t, exchange.Matched, order.Status)
+	remain(t, r, order2, "0")
+	status(t, r, order2, exchange.Matched)
 
-	b, _ = w.Balance(ctx, "1", "A")
-	assert.True(t, b.Equal(d("9900")))
-	b, _ = w.Balance(ctx, "1", "B")
-	assert.True(t, b.Equal(d("49.875")))
-
-	b, _ = w.Balance(ctx, "2", "A")
-	assert.True(t, b.Equal(d("99.75")))
-	b, _ = w.Balance(ctx, "2", "B")
-	assert.True(t, b.Equal(d("9950")))
+	bal(t, w, "1", "A", "9900")
+	bal(t, w, "1", "B", "49.875")
+	bal(t, w, "2", "A", "99.75")
+	bal(t, w, "2", "B", "9950")
 }
 
 func TestExchangeSell1(t *testing.T) {
-	repo := new(memoryExchangeRepository)
-	walletRepo := new(memoryWalletRepository)
-	w := wallet.New(walletRepo)
-	svc := exchange.New(repo, w, currency)
+	r := new(memoryExchangeRepository)
+	w := wallet.New(new(memoryWalletRepository))
+	s := exchange.New(r, w, currency)
 
-	w.Add(ctx, "1", "A", d("10000"))
-	w.Add(ctx, "2", "B", d("10000"))
+	add(t, w, "1", "A", "10000")
+	add(t, w, "2", "B", "10000")
 
-	orderID1, err := svc.PlaceLimitOrder(ctx, "1", exchange.Buy, d("2"), d("50"))
-	assert.NoError(t, err)
-	assert.NotEmpty(t, orderID1)
+	order1 := placeLimit(t, s, "1", exchange.Buy, "2", "50")
 
-	b, _ := w.Balance(ctx, "1", "A")
-	assert.True(t, b.Equal(d("9900")))
-	b, _ = w.Balance(ctx, "1", "B")
-	assert.True(t, b.Equal(d("0")))
+	bal(t, w, "1", "A", "9900")
+	bal(t, w, "1", "B", "0")
 
-	orderID2, err := svc.PlaceLimitOrder(ctx, "2", exchange.Sell, d("2"), d("50"))
-	assert.NoError(t, err)
-	assert.NotEmpty(t, orderID2)
+	order2 := placeLimit(t, s, "2", exchange.Sell, "2", "50")
 
-	order, _ := repo.GetOrder(ctx, orderID1)
-	assert.True(t, order.Remaining.Equal(decimal.Zero))
-	assert.Equal(t, exchange.Matched, order.Status)
+	remain(t, r, order1, "0")
+	status(t, r, order1, exchange.Matched)
 
-	order, _ = repo.GetOrder(ctx, orderID2)
-	assert.True(t, order.Remaining.Equal(decimal.Zero))
-	assert.Equal(t, exchange.Matched, order.Status)
+	remain(t, r, order2, "0")
+	status(t, r, order2, exchange.Matched)
 
-	b, _ = w.Balance(ctx, "1", "A")
-	assert.True(t, b.Equal(d("9900")))
-	b, _ = w.Balance(ctx, "1", "B")
-	assert.True(t, b.Equal(d("49.875")))
-
-	b, _ = w.Balance(ctx, "2", "A")
-	assert.True(t, b.Equal(d("99.75")))
-	b, _ = w.Balance(ctx, "2", "B")
-	assert.True(t, b.Equal(d("9950")))
+	bal(t, w, "1", "A", "9900")
+	bal(t, w, "1", "B", "49.875")
+	bal(t, w, "2", "A", "99.75")
+	bal(t, w, "2", "B", "9950")
 }
