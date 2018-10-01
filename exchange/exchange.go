@@ -293,7 +293,7 @@ func (s *service) runLimitMatching(ctx context.Context, order *Order) error {
 		return err
 	}
 
-	err = s.repo.InsertHistory(ctx, *order, matchOrder, Buy, rate, amount, orderFee, matchOrderFee)
+	err = s.repo.InsertHistory(ctx, *order, matchOrder, order.Side, rate, amount, orderFee, matchOrderFee)
 	if err != nil {
 		return err
 	}
@@ -429,7 +429,7 @@ func (s *service) runMarketMatching(ctx context.Context, order *Order) error {
 		return err
 	}
 
-	err = s.repo.InsertHistory(ctx, *order, matchOrder, Buy, rate, amount, orderFee, matchOrderFee)
+	err = s.repo.InsertHistory(ctx, *order, matchOrder, order.Side, rate, amount, orderFee, matchOrderFee)
 	if err != nil {
 		return err
 	}
