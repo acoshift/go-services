@@ -255,13 +255,7 @@ func (s *service) runLimitMatching(ctx context.Context, order *Order) error {
 	}
 
 	rate := matchOrder.Rate
-
-	var amount decimal.Decimal
-	if matchOrder.Remaining.LessThanOrEqual(order.Remaining) {
-		amount = matchOrder.Remaining
-	} else {
-		amount = order.Remaining
-	}
+	amount := decimal.Min(order.Remaining, matchOrder.Remaining)
 
 	order.Remaining = order.Remaining.Sub(amount)
 	matchOrder.Remaining = matchOrder.Remaining.Sub(amount)
@@ -391,13 +385,7 @@ func (s *service) runMarketMatching(ctx context.Context, order *Order) error {
 	}
 
 	rate := matchOrder.Rate
-
-	var amount decimal.Decimal
-	if matchOrder.Remaining.LessThanOrEqual(order.Remaining) {
-		amount = matchOrder.Remaining
-	} else {
-		amount = order.Remaining
-	}
+	amount := decimal.Min(order.Remaining, matchOrder.Remaining)
 
 	order.Remaining = order.Remaining.Sub(amount)
 	matchOrder.Remaining = matchOrder.Remaining.Sub(amount)
