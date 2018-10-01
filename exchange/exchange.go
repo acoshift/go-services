@@ -255,13 +255,7 @@ func (s *service) runLimitMatching(ctx context.Context, order *Order) error {
 	}
 
 	rate := matchOrder.Rate
-
-	var amount decimal.Decimal
-	if matchOrder.Remaining.LessThanOrEqual(order.Remaining) {
-		amount = matchOrder.Remaining
-	} else {
-		amount = order.Remaining
-	}
+	amount := decimal.Min(order.Remaining, matchOrder.Remaining)
 
 	order.Remaining = order.Remaining.Sub(amount)
 	matchOrder.Remaining = matchOrder.Remaining.Sub(amount)
@@ -293,7 +287,7 @@ func (s *service) runLimitMatching(ctx context.Context, order *Order) error {
 		return err
 	}
 
-	err = s.repo.InsertHistory(ctx, *order, matchOrder, Buy, rate, amount, orderFee, matchOrderFee)
+	err = s.repo.InsertHistory(ctx, *order, matchOrder, order.Side, rate, amount, orderFee, matchOrderFee)
 	if err != nil {
 		return err
 	}
@@ -391,13 +385,7 @@ func (s *service) runMarketMatching(ctx context.Context, order *Order) error {
 	}
 
 	rate := matchOrder.Rate
-
-	var amount decimal.Decimal
-	if matchOrder.Remaining.LessThanOrEqual(order.Remaining) {
-		amount = matchOrder.Remaining
-	} else {
-		amount = order.Remaining
-	}
+	amount := decimal.Min(order.Remaining, matchOrder.Remaining)
 
 	order.Remaining = order.Remaining.Sub(amount)
 	matchOrder.Remaining = matchOrder.Remaining.Sub(amount)
@@ -429,7 +417,7 @@ func (s *service) runMarketMatching(ctx context.Context, order *Order) error {
 		return err
 	}
 
-	err = s.repo.InsertHistory(ctx, *order, matchOrder, Buy, rate, amount, orderFee, matchOrderFee)
+	err = s.repo.InsertHistory(ctx, *order, matchOrder, order.Side, rate, amount, orderFee, matchOrderFee)
 	if err != nil {
 		return err
 	}
